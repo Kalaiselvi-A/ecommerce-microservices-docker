@@ -1,0 +1,207 @@
+package com.ecommerce.orderservice.service;
+import com.ecommerce.orderservice.client.ProductClient;
+import com.ecommerce.orderservice.client.UserClient;
+import com.ecommerce.orderservice.dto.*;
+import com.ecommerce.orderservice.entity.Order;
+import com.ecommerce.orderservice.entity.OrderItem;
+import com.ecommerce.orderservice.exception.GlobalExceptionHandler;
+import com.ecommerce.orderservice.exception.OrderNotFoundException;
+import com.ecommerce.orderservice.exception.ProductServiceException;
+import com.ecommerce.orderservice.exception.UserServiceUnavailableException;
+import com.ecommerce.orderservice.repository.OrderRepository;
+
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+public class OrderServiceImpl implements OrderService {
+
+    private final GlobalExceptionHandler globalExceptionHandler;
+
+//	@Value("${product.service.url}")
+//	private String productServiceUrl;	
+	
+    private final OrderRepository orderRepository;
+//    private final RestTemplate restTemplate;
+    private final ProductClient productClient;
+    
+    private final UserClient userClient;
+
+    public OrderServiceImpl(OrderRepository orderRepository, ProductClient productClient, UserClient userClient, GlobalExceptionHandler globalExceptionHandler) {
+		this.orderRepository = orderRepository;
+		this.productClient = productClient;
+		this.userClient = userClient;
+		this.globalExceptionHandler = globalExceptionHandler;
+	}
+
+
+    @Override
+    public OrderResponseDTO createOrder(OrderRequestDTO request) {
+
+    	// 1️. Validate User
+//    	UserResponse user = userClient.getUserById(request.getUserId());
+
+    	UserResponse user= getUserById(request.getUserId());
+    	
+    	if (user == null || !Boolean.TRUE.equals(user.getActive())) {
+    	    throw new IllegalStateException("User is not active or not found");
+    	}
+    	
+        Order order = new Order();
+        order.setUserId(request.getUserId());
+
+        List<OrderItem> orderItems = new ArrayList<>();
+        double totalAmount = 0;
+
+        for (OrderItemRequestDTO itemDTO : request.getItems()) {
+
+            OrderItem item = new OrderItem();
+            item.setProductId(itemDTO.getProductId());
+            item.setQuantity(itemDTO.getQuantity());
+
+//            // Temporary price (will come from Product Service later)
+//            double price = 100.0;
+//            item.setPrice(price);
+//            totalAmount += price * itemDTO.getQuantity();
+            
+//				----------------------------------------------------------------------
+            
+//            String productServiceUrl =
+//                    "http://localhost:8082/api/products/" + itemDTO.getProductId();
+            
+//            String url = productServiceUrl + "/" + itemDTO.getProductId();
+//            
+//            ProductResponse productResponse;
+//
+//            try {
+//                productResponse = restTemplate.getForObject(
+//                		url,
+//                        ProductResponse.class
+//                );
+//            } catch (Exception ex) {
+//            	 throw new ProductServiceException(
+//            		        "Product Service is unavailable. Please try again later."
+//            		    );
+//            }
+
+//			----------------------------------------------------------------------
+
+            
+//            ProductResponse productResponse;
+//            
+//            try {
+//              productResponse = getProductById(itemDTO.getProductId());
+//              
+//            } catch (Exception ex) {
+//          	 throw new ProductServiceException(
+//          		        "Product Service is unavailable. Please try again later."
+//          		    );
+//          	 }
+
+//			----------------------------------------------------------------------
+
+            ProductResponse productResponse;
+			try {
+				productResponse = getProductById(itemDTO.getProductId());
+			} catch (Exception e) {
+				throw new ProductServiceException("Product Service is not unavailable.");
+			}
+            
+            if (productResponse == null) {
+            	throw new ProductServiceException(
+            	        "Product not found with id: " + itemDTO.getProductId()
+            	    );
+            }
+
+            double price = productResponse.getPrice();
+            item.setPrice(price);
+
+            totalAmount += price * itemDTO.getQuantity();
+        
+            
+            item.setOrder(order);
+            orderItems.add(item);
+        }
+
+        order.setItems(orderItems);
+        order.setTotalAmount(totalAmount);
+
+        Order savedOrder = orderRepository.save(order);
+        return mapToResponse(savedOrder);
+    }
+
+//	----------------------------------------------------------------------
+    
+    // Product Call Logic in Separate Method
+//    @CircuitBreaker(name = "productService", fallbackMethod = "productServiceFallback")
+//    public ProductResponse getProductById(Long productId) {
+//    	
+//    	String url = productServiceUrl + "/" + productId;
+//    	
+//    	return restTemplate.getForObject(url, ProductResponse.class);
+//	}
+
+//	----------------------------------------------------------------------
+
+    @CircuitBreaker(name = "productService", fallbackMethod = "productServiceFallback")
+    public ProductResponse getProductById(Long productId) {
+        return productClient.getProductById(productId);
+    }
+
+    
+    // Fallback Method
+    public ProductResponse productServiceFallback(Long productId, Throwable ex) {
+
+        throw new ProductServiceException(
+                "Product Service is currently unavailable. Please try again later."
+        );
+    }
+
+    @CircuitBreaker(name = "userService", fallbackMethod = "userServiceFallback")
+    public UserResponse getUserById(Long userId) {
+        return userClient.getUserById(userId);
+    }
+
+    // Fall back
+    public UserResponse userServiceFallback(Long userId, Throwable ex) {
+        throw new IllegalStateException(
+                "User Service is currently unavailable. Please try again later."
+        );
+    }
+    
+	@Override
+    public OrderResponseDTO getOrderById(Long orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found with id " + orderId));
+        return mapToResponse(order);
+    }
+
+    private OrderResponseDTO mapToResponse(Order order) {
+
+        OrderResponseDTO response = new OrderResponseDTO();
+        response.setOrderId(order.getId());
+        response.setUserId(order.getUserId());
+        response.setStatus(order.getStatus());
+        response.setTotalAmount(order.getTotalAmount());
+        response.setCreatedAt(order.getCreatedAt());
+
+        List<OrderItemResponseDTO> itemResponses = new ArrayList<>();
+        for (OrderItem item : order.getItems()) {
+            OrderItemResponseDTO dto = new OrderItemResponseDTO();
+            dto.setProductId(item.getProductId());
+            dto.setQuantity(item.getQuantity());
+            dto.setPrice(item.getPrice());
+            itemResponses.add(dto);
+        }
+
+        response.setItems(itemResponses);
+        return response;
+    }
+    
+}

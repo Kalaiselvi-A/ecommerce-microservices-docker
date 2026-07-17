@@ -1,0 +1,26 @@
+package com.ecommerce.userservice.service;
+
+import java.util.List;
+
+import com.ecommerce.userservice.dto.UserInternalResponseDTO;
+import com.ecommerce.userservice.dto.UserRequestDTO;
+import com.ecommerce.userservice.dto.UserResponseDTO;
+import com.ecommerce.userservice.dto.UserUpdateRequestDTO;
+
+public interface UserService {
+	
+	UserResponseDTO createUser(UserRequestDTO request);
+	
+	UserResponseDTO getUserById(Long id);
+	
+	List<UserResponseDTO> getAllUsers();
+	
+	UserResponseDTO updateUser(Long id, UserUpdateRequestDTO request);
+	
+	void deleteUser(Long id);
+	
+	
+	UserInternalResponseDTO getUserInternal(Long userId);
+
+
+}
