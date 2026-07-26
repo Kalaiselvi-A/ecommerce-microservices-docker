@@ -186,10 +186,6 @@ Docker Compose is used to:
 
 ## Screenshots
 
-Add screenshots here after running the project.
-
-Example:
-
 ```
 screenshots/
 ├── docker-containers.png
